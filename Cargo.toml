@@ -1,0 +1,14 @@
+[package]
+name = "scout"
+version = "0.1.0"
+license = "GPL"
+description = "Analyze git branches update status"
+repository = "https://github.com/vthib/scout"
+readme = "README.md"
+authors = ["vthib <vthiberville@gmail.com>"]
+
+[dependencies]
+toml = "*"
+
+[features]
+nightly = []
