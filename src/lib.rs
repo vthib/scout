@@ -12,7 +12,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct Branch {
     pub name: String,
-    pub inherits: Vec<Branch>,
+    pub inherits: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -48,10 +48,23 @@ impl FromToml for Branch {
         let name = try_toml!(table.get("name").and_then(|v| v.as_str()),
                              "table `branch` should have a `name` attribute");
 
-        Ok(Branch {
+        let mut branch = Branch {
             name: name.to_string(),
             inherits: Vec::new(),
-        })
+        };
+        match table.get("inherits") {
+            None => Ok(branch),
+            Some(v) => {
+                let branches = try_toml!(v.as_slice(),
+                                      "value `inherits` should be an array");
+                for b in branches {
+                    let s = try_toml!(b.as_str(),
+                                      "`inherits` values should be strings");
+                    branch.inherits.push(s.to_string());
+                }
+                Ok(branch)
+            }
+        }
     }
 }
 
@@ -141,8 +154,20 @@ mod test {
 
     #[test]
     fn test_branch_from_toml() {
-        test_err_from_toml_string::<Branch>("",
+        let mut toml = String::from("");
+
+        test_err_from_toml_string::<Branch>(&toml,
             "table `branch` should have a `name` attribute");
+
+        toml.push_str("name = \"pnl\"\n");
+        toml.push_str("inherits = 5\n");
+        test_err_from_toml_string::<Branch>(&toml,
+            "value `inherits` should be an array");
+
+        toml = String::from("name = \"pnl\"\n");
+        toml.push_str("inherits = [5]\n");
+        test_err_from_toml_string::<Branch>(&toml,
+            "`inherits` values should be strings");
     }
 
     #[test]
