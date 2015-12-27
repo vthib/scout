@@ -1,6 +1,6 @@
 extern crate scout;
 
-use scout::git::Context;
+use scout::cfg::Context;
 
 use std::io::Write;
 

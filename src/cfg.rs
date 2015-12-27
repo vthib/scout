@@ -2,11 +2,11 @@ extern crate toml;
 
 use core::Error;
 
-use git::{Branch, Repo, Context};
-
 use std::collections::HashMap;
-use std::fs;
+use std::cell::RefCell;
 use std::io::Read;
+use std::rc::Rc;
+use std::fs;
 
 // {{{ Helpers
 
@@ -24,15 +24,41 @@ macro_rules! throw_err {
 }
 
 trait FromToml {
-    fn from_toml(&toml::Table) -> Result<Self, Error>;
+    fn from_toml(&toml::Table) -> Result<Self, Error>
+        where Self: Sized;
 }
 
 // }}}
 // {{{ TOML tables to structures
 // {{{ Branch
 
+pub type BranchRef = Rc<RefCell<Branch>>;
+
 #[derive(Debug)]
-pub struct ParsedBranch {
+pub struct Branch {
+    name: String,
+    inherits: Vec<BranchRef>,
+}
+
+
+impl Branch {
+    pub fn new(name: String) -> Branch {
+        Branch {
+            name: name,
+            inherits: Vec::new(),
+        }
+    }
+
+    pub fn inherits_from(&mut self, child: &BranchRef) {
+        self.inherits.push(child.clone());
+    }
+}
+
+// }}}
+// {{{ ParsedBranch
+
+#[derive(Debug)]
+struct ParsedBranch {
     pub name: String,
     pub inherits: Vec<String>,
 }
@@ -66,7 +92,7 @@ impl FromToml for ParsedBranch {
 // {{{ Repo
 
 #[derive(Debug)]
-pub struct ParsedRepo {
+struct ParsedRepo {
     pub name: String,
     pub branches: HashMap<String, ParsedBranch>,
 }
@@ -93,6 +119,33 @@ impl FromToml for ParsedRepo {
         }
 
         Ok(repo)
+    }
+}
+
+// }}}
+// {{{ Repo
+
+#[derive(Debug)]
+pub struct Repo {
+    name: String,
+    branches: HashMap<String, BranchRef>,
+}
+
+impl Repo {
+    pub fn new(name: String) -> Repo {
+        Repo {
+            name: name,
+            branches: HashMap::new(),
+        }
+    }
+
+    pub fn add_branch(&mut self, branch: Branch) {
+        self.branches.insert(branch.name.to_string(),
+                             Rc::new(RefCell::new(branch)));
+    }
+
+    pub fn find_branch(&self, branch_name: &str) -> Option<&BranchRef> {
+        self.branches.get(branch_name)
     }
 }
 
@@ -131,6 +184,38 @@ impl FromToml for Repo {
 // }}}
 // {{{ Context
 
+#[derive(Debug)]
+pub struct Context {
+    repos: HashMap<String, Repo>,
+}
+
+impl Context {
+    pub fn new() -> Context {
+        Context {
+            repos: HashMap::new(),
+        }
+    }
+
+    pub fn add_repo(&mut self, repo: Repo) {
+        self.repos.insert(repo.name.to_string(), repo);
+    }
+}
+
+impl Context {
+    pub fn from_config(cfgfile_path: &str) -> Result<Context, Error> {
+        let mut f = fs::File::open(cfgfile_path).unwrap();
+        let mut buf = String::new();
+        f.read_to_string(&mut buf).unwrap();
+
+        let mut parser = toml::Parser::new(&buf);
+        let table = try_toml!(parser.parse(),
+                              format!("error while parsing `{}`: {:?}",
+                                      &cfgfile_path, parser.errors));
+
+        Context::from_toml(&table)
+    }
+}
+
 impl FromToml for Context {
     fn from_toml(table: &toml::Table) -> Result<Context, Error> {
         let repos = try_toml!(table.get("repo").and_then(|v| v.as_slice()),
@@ -151,31 +236,15 @@ impl FromToml for Context {
 
 // }}}
 // }}}
-
-impl Context {
-    pub fn from_config(cfgfile_path: &str) -> Result<Context, Error> {
-        let mut f = fs::File::open(cfgfile_path).unwrap();
-        let mut buf = String::new();
-        f.read_to_string(&mut buf).unwrap();
-
-        let mut parser = toml::Parser::new(&buf);
-        let table = try_toml!(parser.parse(),
-                              format!("error while parsing `{}`: {:?}",
-                                      &cfgfile_path, parser.errors));
-
-        Context::from_toml(&table)
-    }
-}
-
 // {{{ Tests
 
 #[cfg(test)]
 mod test {
     extern crate toml;
     use super::*;
+    use super::ParsedBranch;
     use super::FromToml;
     use core::Error;
-    use git::{Repo, Context};
 
     use std::fmt::Debug;
 
